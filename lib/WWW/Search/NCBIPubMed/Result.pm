@@ -2,7 +2,7 @@ package WWW::Search::NCBIPubMed::Result;
 
 =head1 NAME
 
-WWW::Search::NCBIPubMed::Result - NCBI Search Result
+WWW::Search::NCBIPubMed::Result - NCBI PubMed Search Result
 
 =head1 SYNOPSIS
 
@@ -18,14 +18,9 @@ WWW::Search::NCBIPubMed::Result - NCBI Search Result
 
 =head1 DESCRIPTION
 
-WWW::Search::PubMed::Result objects represent query results returned
-from a WWW::Search::PubMed search. See L<WWW::Search:PubMed> for more
+WWW::Search::NCBIPubMed::Result objects represent query results returned
+from a WWW::Search::NCBIPubMed search. See L<WWW::Search:NCBIPubMed> for more
 information.
-
-=head1 VERSION
-
-This document describes WWW::Search::PubMed version 1.004,
-released 31 October 2007.
 
 =head1 REQUIRES
 
@@ -42,8 +37,7 @@ our($VERSION)	= '1.004';
 use strict;
 use warnings;
 
-use parent qw(WWW::Search::Result);
-
+use parent qw/WWW::Search::Result/;
 
 =item C<< pmid >>
 

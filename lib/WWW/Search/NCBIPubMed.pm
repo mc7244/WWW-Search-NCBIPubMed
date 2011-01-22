@@ -37,9 +37,9 @@ use WWW::Search::NCBIPubMed::Result;
 use XML::Twig::XPath;
 #use Data::Dump qw/dump/;
 
-use constant	ARTICLES_PER_REQUEST	=> 20;
-use constant	QUERY_ARTICLE_LIST_URI	=> 'http://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?db=pubmed&retmax=500';	# term=ACTG
-use constant	QUERY_ARTICLE_INFO_URI	=> 'http://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=pubmed';	# &id=12167276&retmode=xml
+our $ARTICLES_PER_REQUEST = 20;
+our $QUERY_ARTICLE_LIST_URI	= 'http://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?db=pubmed&retmax=500';	# term=ACTG
+our $QUERY_ARTICLE_INFO_URI	= 'http://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=pubmed';	# &id=12167276&retmode=xml
 
 our $VERSION = '0.00001';
 our $debug = 0;
@@ -60,7 +60,7 @@ sub native_setup_search {
 	$self->user_agent( "WWW::Search::NCBIPubMed/${VERSION} libwww-perl/${LWP::VERSION}" );
 	
 	my $ua			= $self->user_agent();
-	my $url			= QUERY_ARTICLE_LIST_URI . '&term=' . WWW::Search::escape_query($query);
+	my $url			= $QUERY_ARTICLE_LIST_URI . '&term=' . WWW::Search::escape_query($query);
 	my $response	= $ua->get( $url );
 	my $success		= $response->is_success;
     $self->{response} = $response;
@@ -85,11 +85,11 @@ Requests search results from NCBI, adding the results to the WWW::Search object'
 =cut
 
 sub native_retrieve_some {
-	my $self	= shift;
+	my $self = shift;
 	
 	return undef unless scalar (@{ $self->{'_article_ids'} || [] });
 	my $ua			= $self->user_agent();
-	my $url			= QUERY_ARTICLE_INFO_URI . '&id=' . join(',', splice(@{ $self->{'_article_ids'} },0,ARTICLES_PER_REQUEST)) . '&retmode=xml';
+	my $url			= $QUERY_ARTICLE_INFO_URI . '&id=' . join(',', splice(@{ $self->{'_article_ids'} },0,$ARTICLES_PER_REQUEST)) . '&retmode=xml';
 	warn 'Fetching URL: ' . $url if $debug;
 	my $response	= $ua->get( $url );
     $self->{response} = $response;
@@ -103,15 +103,13 @@ sub native_retrieve_some {
     my @articles	= $doc->descendants('PubmedArticle');
     warn (scalar(@articles) . " articles found\n") if $debug;
     my $count		= 0;
-    foreach my $article(@articles) {
-        my $id		= ($article->descendants('PMID'))[0]->field;
-        warn " ==> ID :$id\n" if ($debug);
+    for my $article(@articles) {
+        my $id	= ($article->descendants('PMID'))[0]->field;
+        warn " ==> ID :$id\n" if $debug;
 
         # Some articles don't even have the title, sik!
         my $title = ($article->descendants('ArticleTitle'))[0]->field || undef;
         warn "\t$title\n" if $debug;
-
-        my $url		= 'http://www.ncbi.nlm.nih.gov:80/entrez/query.fcgi?cmd=Retrieve&db=PubMed&list_uids=' . $id . '&dopt=Abstract';
 
         my (@authors, @authors_struct, $authors_str);
         my @authornodes	= $article->descendants('Author');
@@ -142,13 +140,6 @@ sub native_retrieve_some {
         my $author	= join(', ', @authors);
         warn "\t$author\n" if ($debug);
         
-        my $journal		= $self->get_text_node( $article, 'MedlineTA' );
-        my $page		= $self->get_text_node( $article, 'MedlinePgn' );
-        my $volume		= $self->get_text_node( $article, 'Volume' );
-        my $issue		= $self->get_text_node( $article, 'Issue' );
-        my $pmid		= $self->get_text_node( $article, 'PMID' );
-        my $abstract	= $self->get_text_node( $article, 'AbstractText' );
-
         # Get the main dates
         my ($pm_dates, $pm_date_structs, $pm_date_strings);
         for my $dfield( 'PubDate', 'ArticleDate', 'DateCreated' ) {
@@ -172,9 +163,6 @@ sub native_retrieve_some {
             $pm_date_strings->{"pubmedpubdate_$pubstatus"} = $date_string;
         }
         
-        # Retrieve the DOI, if it exists
-        my $doi = $self->_get_doi($article);
-        
         # ##### Populate result #####
         my $hit = WWW::Search::NCBIPubMed::Result->new();
         
@@ -184,35 +172,37 @@ sub native_retrieve_some {
         my $source	= '';
         $hit->pubdate( $pm_date_strings->{pubdate} );
         $hit->articledate( $pm_date_strings->{articledate} );
-        #$hit->pubmedpubdate( $pm_date_strings->{pubmedPubDate} );
         
         $hit->authors( \@authors_struct );
         $hit->authors_str( $author );
-        $hit->journal( $journal );
-        $hit->doi( $doi );
-        $hit->volume( $volume );
-        $hit->issue( $issue );
-        $hit->page( $page );
-        
-        $source	= "${journal}. "
-                . ($pm_dates->{PubDate} ? "$pm_dates->{PubDate}; " : '')
-                . ($volume ? "${volume}" : '')
-                . ($issue ? "(${issue})" : '')
-                . ($page ? ":$page" : '');
-        $source	= "(${source})" if ($source);
-        warn "\t$source\n" if ($debug);
-        
-        $hit->add_url( $url );
-        $hit->title( $title );
-        
-        $hit->pmid( $pmid );
+        $hit->journal( $self->get_text_node( $article, 'MedlineTA' ) );
+        $hit->doi( $self->_get_doi($article) );
+        $hit->volume( $self->get_text_node( $article, 'Volume' ) );
+        $hit->issue( $self->get_text_node( $article, 'Issue' ) );
+        $hit->page( $self->get_text_node( $article, 'MedlinePgn' ) );
+        $hit->title( $title );       
+        $hit->pmid( $self->get_text_node( $article, 'PMID' ) );
+
+        my $abstract	= $self->get_text_node( $article, 'AbstractText' );
         $hit->abstract( $abstract ) if ($abstract);
         
+        $source	= $hit->journal. ' '
+                . ($pm_dates->{PubDate} ? "$pm_dates->{PubDate}; " : '')
+                . ($hit->volume ? $hit->volume.' ' : '')
+                . ($hit->issue ? '(' . $hit->issue . ') ' : '')
+                . ($hit->page ? ':' . $hit->page : '');
+        $source	= "(${source})" if ($source);
+        warn "\t$source\n" if $debug;
+        
+        # Public url to the result
+        my $url = 'http://www.ncbi.nlm.nih.gov:80/entrez/query.fcgi?cmd=Retrieve&db=PubMed&list_uids=' . $id . '&dopt=Abstract';
+        $hit->add_url( $url );
+       
         my $desc	= join(' ', grep {$_} ($author, $source));
         $hit->description( $desc );
         push( @{ $self->{'cache'} }, $hit );
         $count++;
-        warn "$count : $title\n" if ($debug);
+        warn "$count : $title\n" if $debug;
     }
     return $count;
 }
@@ -250,9 +240,7 @@ sub _get_doi {
         next if !defined $articleid;
 
         my $articleid_idtype = $articleid->att('IdType');
-        if ( $articleid_idtype eq 'doi') {
-            return $articleid->field;
-        }
+        return $articleid->field if $articleid_idtype eq 'doi';
     }
     
     # Attempt ELocationID
@@ -261,12 +249,10 @@ sub _get_doi {
         next if !defined $elocationid;
 
         my $elocationid_eidtype = $elocationid->att('EIdType');
-        if ( $elocationid_eidtype eq 'doi') {
-            return $elocationid->field;
-        }
+        return $elocationid->field if $elocationid_eidtype eq 'doi';
     }
     
-    # Return undef
+    # No match :-(
     return;
 }
 
